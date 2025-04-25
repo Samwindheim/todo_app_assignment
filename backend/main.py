@@ -76,6 +76,25 @@ async def update_task(task_id: int, task_in: TaskUpdate):
 
     return task_to_update
 
+@app.delete("/api/tasks/{task_id}", status_code=204)
+async def delete_task(task_id: int):
+    """
+    Delete a task by ID.
+    """
+    global tasks_db
+    task_to_delete = None
+    for task in tasks_db:
+        if task.id == task_id:
+            task_to_delete = task
+            break
+
+    if task_to_delete is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    tasks_db.remove(task_to_delete)
+    # No content to return for 204
+    return
+
 # Add a simple root endpoint for testing
 @app.get("/")
 async def read_root():
