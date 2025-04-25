@@ -15,6 +15,9 @@ class TaskBase(BaseModel):
 class TaskCreate(TaskBase):
     pass # Inherits all fields from TaskBase
 
+class TaskUpdate(TaskBase): # Model for PUT requests
+    pass # Inherits all fields from TaskBase
+
 class Task(TaskBase):
     id: int
 
@@ -54,6 +57,24 @@ async def create_task(task_in: TaskCreate):
     new_task = Task(id=new_id, **task_in.model_dump())
     tasks_db.append(new_task)
     return new_task
+
+@app.put("/api/tasks/{task_id}", response_model=Task)
+async def update_task(task_id: int, task_in: TaskUpdate):
+    """
+    Update an existing task by ID.
+    """
+    task_to_update = None
+    for i, task in enumerate(tasks_db):
+        if task.id == task_id:
+            # Update task attributes
+            tasks_db[i] = Task(id=task_id, **task_in.model_dump())
+            task_to_update = tasks_db[i]
+            break
+
+    if task_to_update is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return task_to_update
 
 # Add a simple root endpoint for testing
 @app.get("/")
