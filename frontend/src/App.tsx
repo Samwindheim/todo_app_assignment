@@ -108,6 +108,26 @@ function App() {
     }
   };
 
+  // --- Function to handle deleting a task ---
+  const handleDeleteTask = async (taskIdToDelete: number) => {
+    // Optional: Ask for confirmation before deleting
+    // if (!window.confirm("Are you sure you want to delete this task?")) {
+    //   return;
+    // }
+
+    try {
+      await axios.delete(`${API_URL}/${taskIdToDelete}`);
+
+      // Remove the task from the state
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskIdToDelete));
+      setError(null); // Clear errors on success
+    } catch (err) {
+      console.error("Error deleting task:", err);
+      setError("Failed to delete task. Please try again.");
+      // No state reversion needed for delete, but error is shown
+    }
+  };
+
   return (
     <>
       <h1>Todo List</h1>
@@ -135,8 +155,14 @@ function App() {
                 style={{ marginRight: '10px' }} // Add some spacing
              />
             {task.title}
-            {/* Removed the old (Completed) text */}
-            {/* We'll add buttons for edit/delete later */}
+            {/* Add Delete Button */}
+            <button
+                onClick={() => handleDeleteTask(task.id)}
+                style={{ marginLeft: '10px', cursor: 'pointer', color: 'red' }} // Basic styling
+            >
+                Delete
+            </button>
+            {/* We'll add buttons for edit later */}
           </li>
         ))}
       </ul>
