@@ -25,7 +25,14 @@ function App() {
   useEffect(() => {
     axios.get<Task[]>(API_URL)
       .then(response => {
-        setTasks(response.data);
+        // Sort tasks: incomplete first, then by ID descending (newest first)
+        const sortedTasks = response.data.sort((a, b) => {
+            if (a.completed === b.completed) {
+                return b.id - a.id; // Newest first within the same status
+            }
+            return a.completed ? 1 : -1; // Incomplete tasks first
+        });
+        setTasks(sortedTasks);
         setError(null); // Clear any previous errors
       })
       .catch(err => {
@@ -35,7 +42,7 @@ function App() {
       });
   }, []); // Empty dependency array means this runs once on mount
 
-  // --- Function to handle adding a new task --- // Added this function
+  // --- Function to handle adding a new task ---
   const handleAddTask = async (event: FormEvent) => {
     event.preventDefault(); // Prevent page reload on form submit
 
@@ -47,11 +54,20 @@ function App() {
     try {
       const response = await axios.post<Task>(API_URL, {
         title: newTaskTitle,
-        // description and completed will use backend defaults
+        // description and completed will use backend defaults (false)
       });
 
-      // Add the new task to the beginning of the list in the state
-      setTasks(prevTasks => [response.data, ...prevTasks]);
+      // Add the new task to the state and re-sort
+      setTasks(prevTasks => {
+          const updatedTasks = [response.data, ...prevTasks];
+          // Keep the same sorting logic as in useEffect
+          return updatedTasks.sort((a, b) => {
+              if (a.completed === b.completed) {
+                  return b.id - a.id;
+              }
+              return a.completed ? 1 : -1;
+          });
+      });
       setNewTaskTitle(""); // Clear the input field
       setError(null); // Clear any previous errors
     } catch (err) {
@@ -61,12 +77,43 @@ function App() {
     }
   };
 
+  // --- Function to handle toggling task completion ---
+  const handleToggleComplete = async (taskToToggle: Task) => {
+    const updatedTaskData = {
+        ...taskToToggle,
+        completed: !taskToToggle.completed,
+    };
+
+    try {
+      await axios.put(`${API_URL}/${taskToToggle.id}`, updatedTaskData);
+
+      // Update the task in the state and re-sort
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.map(task =>
+          task.id === taskToToggle.id ? updatedTaskData : task
+        );
+        // Keep the same sorting logic
+        return updatedTasks.sort((a, b) => {
+            if (a.completed === b.completed) {
+                return b.id - a.id;
+            }
+            return a.completed ? 1 : -1;
+        });
+      });
+      setError(null); // Clear errors on success
+    } catch (err) {
+      console.error("Error updating task:", err);
+      setError("Failed to update task status. Please try again.");
+      // Optionally revert state change here if needed
+    }
+  };
+
   return (
     <>
       <h1>Todo List</h1>
       {error && <p style={{ color: 'red' }}>{error}</p>} {/* Display error message if any */}
 
-      {/* --- Add Task Form --- */} {/* Added this form */}
+      {/* --- Add Task Form --- */}
       <form onSubmit={handleAddTask}>
         <input
           type="text"
@@ -80,9 +127,16 @@ function App() {
       {/* --- Task List --- */}
       <ul>
         {tasks.map(task => (
-          <li key={task.id}>
-            {task.title} {task.completed ? "(Completed)" : ""}
-            {/* We'll add buttons for edit/delete/complete later */}
+          <li key={task.id} style={{ textDecoration: task.completed ? 'line-through' : 'none' }}>
+             <input
+                type="checkbox"
+                checked={task.completed}
+                onChange={() => handleToggleComplete(task)}
+                style={{ marginRight: '10px' }} // Add some spacing
+             />
+            {task.title}
+            {/* Removed the old (Completed) text */}
+            {/* We'll add buttons for edit/delete later */}
           </li>
         ))}
       </ul>
