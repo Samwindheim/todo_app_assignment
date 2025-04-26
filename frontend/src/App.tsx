@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios' // Import axios
+import { useState, useEffect, FormEvent } from 'react' // Added FormEvent
+import axios from 'axios'
 import './App.css'
 
 // Define an interface for the Task structure
@@ -15,6 +15,8 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   // State to hold potential loading errors
   const [error, setError] = useState<string | null>(null);
+  // State for the new task input field
+  const [newTaskTitle, setNewTaskTitle] = useState<string>(""); // Added state for input
 
   // API base URL (adjust if your backend runs elsewhere)
   const API_URL = 'http://127.0.0.1:8000/api/tasks';
@@ -33,10 +35,49 @@ function App() {
       });
   }, []); // Empty dependency array means this runs once on mount
 
+  // --- Function to handle adding a new task --- // Added this function
+  const handleAddTask = async (event: FormEvent) => {
+    event.preventDefault(); // Prevent page reload on form submit
+
+    if (!newTaskTitle.trim()) {
+      setError("Task title cannot be empty.");
+      return; // Don't submit if title is empty
+    }
+
+    try {
+      const response = await axios.post<Task>(API_URL, {
+        title: newTaskTitle,
+        // description and completed will use backend defaults
+      });
+
+      // Add the new task to the beginning of the list in the state
+      setTasks(prevTasks => [response.data, ...prevTasks]);
+      setNewTaskTitle(""); // Clear the input field
+      setError(null); // Clear any previous errors
+    } catch (err) {
+      console.error("Error adding task:", err);
+      setError("Failed to add task. Please try again.");
+      // More specific error handling could be added here
+    }
+  };
+
   return (
     <>
       <h1>Todo List</h1>
       {error && <p style={{ color: 'red' }}>{error}</p>} {/* Display error message if any */}
+
+      {/* --- Add Task Form --- */} {/* Added this form */}
+      <form onSubmit={handleAddTask}>
+        <input
+          type="text"
+          value={newTaskTitle}
+          onChange={(e) => setNewTaskTitle(e.target.value)}
+          placeholder="Enter new task title"
+        />
+        <button type="submit">Add Task</button>
+      </form>
+
+      {/* --- Task List --- */}
       <ul>
         {tasks.map(task => (
           <li key={task.id}>
@@ -45,7 +86,6 @@ function App() {
           </li>
         ))}
       </ul>
-      {/* We'll add a form to add new tasks later */}
     </>
   )
 }
