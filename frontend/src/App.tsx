@@ -18,6 +18,10 @@ function App() {
   // State for the new task input field
   const [newTaskTitle, setNewTaskTitle] = useState<string>(""); // Added state for input
 
+  // --- State for Editing Tasks ---
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editedTaskTitle, setEditedTaskTitle] = useState<string>("");
+
   // API base URL (adjust if your backend runs elsewhere)
   const API_URL = 'http://127.0.0.1:8000/api/tasks';
 
@@ -79,6 +83,11 @@ function App() {
 
   // --- Function to handle toggling task completion ---
   const handleToggleComplete = async (taskToToggle: Task) => {
+    // --- Prevent toggling while editing the same task ---
+    if (editingTaskId === taskToToggle.id) {
+       return; // Or maybe show a small message
+    }
+
     const updatedTaskData = {
         ...taskToToggle,
         completed: !taskToToggle.completed,
@@ -128,6 +137,63 @@ function App() {
     }
   };
 
+  // --- Functions for Editing Tasks ---
+  const handleEditClick = (task: Task) => {
+    setEditingTaskId(task.id);
+    setEditedTaskTitle(task.title); // Pre-fill the input
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTaskId(null);
+    setEditedTaskTitle("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (editingTaskId === null) return;
+
+    if (!editedTaskTitle.trim()) {
+        setError("Task title cannot be empty.");
+        return; // Don't save if title is empty
+    }
+
+    // Find the original task to get its other properties (like completed status)
+    const originalTask = tasks.find(task => task.id === editingTaskId);
+    if (!originalTask) {
+        setError("Original task not found for editing."); // Should not happen
+        setEditingTaskId(null);
+        return;
+    }
+
+    const updatedTaskData = {
+        ...originalTask, // Keep other properties like description, completed
+        title: editedTaskTitle.trim(), // Use the edited title
+    };
+
+    try {
+      await axios.put(`${API_URL}/${editingTaskId}`, updatedTaskData);
+
+      // Update the task in the state and re-sort
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.map(task =>
+          task.id === editingTaskId ? updatedTaskData : task
+        );
+        // Keep the same sorting logic
+        return updatedTasks.sort((a, b) => {
+            if (a.completed === b.completed) {
+                return b.id - a.id;
+            }
+            return a.completed ? 1 : -1;
+        });
+      });
+      setError(null); // Clear errors on success
+      handleCancelEdit(); // Exit edit mode
+    } catch (err) {
+      console.error("Error updating task:", err);
+      setError("Failed to update task. Please try again.");
+      // Optionally: Don't exit edit mode on error, let user retry?
+    }
+  };
+
   return (
     <>
       <h1>Todo List</h1>
@@ -148,21 +214,53 @@ function App() {
       <ul>
         {tasks.map(task => (
           <li key={task.id} style={{ textDecoration: task.completed ? 'line-through' : 'none' }}>
-             <input
-                type="checkbox"
-                checked={task.completed}
-                onChange={() => handleToggleComplete(task)}
-                style={{ marginRight: '10px' }} // Add some spacing
-             />
-            {task.title}
-            {/* Add Delete Button */}
-            <button
-                onClick={() => handleDeleteTask(task.id)}
-                style={{ marginLeft: '10px', cursor: 'pointer', color: 'red' }} // Basic styling
-            >
-                Delete
-            </button>
-            {/* We'll add buttons for edit later */}
+            {editingTaskId === task.id ? (
+              // --- Edit Mode --- //
+              <>
+                <input
+                  type="text"
+                  value={editedTaskTitle}
+                  onChange={(e) => setEditedTaskTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit()} // Save on Enter
+                  autoFocus // Focus the input when it appears
+                  style={{ marginRight: '10px' }}
+                />
+                <button onClick={handleSaveEdit} style={{ marginRight: '5px' }}>Save</button>
+                <button onClick={handleCancelEdit}>Cancel</button>
+              </>
+            ) : (
+              // --- View Mode --- //
+              <>
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => handleToggleComplete(task)}
+                  style={{ marginRight: '10px' }}
+                  disabled={editingTaskId !== null} // Disable checkbox if any task is being edited
+                />
+                <span onClick={() => !task.completed && handleEditClick(task)} style={{ cursor: task.completed ? 'default' : 'pointer', marginRight: '10px' }}>
+                   {task.title}
+                </span>
+                {/* Edit Button - only show if not completed */}
+                {!task.completed &&
+                    <button
+                        onClick={() => handleEditClick(task)}
+                        style={{ marginLeft: '10px', cursor: 'pointer' }}
+                        disabled={editingTaskId !== null} // Disable if any task is being edited
+                    >
+                        Edit
+                    </button>
+                }
+                {/* Delete Button */}
+                <button
+                    onClick={() => handleDeleteTask(task.id)}
+                    style={{ marginLeft: '10px', cursor: 'pointer', color: 'red' }}
+                    disabled={editingTaskId !== null} // Disable if any task is being edited
+                >
+                    Delete
+                </button>
+              </>
+            )}
           </li>
         ))}
       </ul>
