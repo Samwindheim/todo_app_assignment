@@ -1,6 +1,7 @@
 import databases
 import sqlalchemy
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional # Removed Dict, Any as they might not be needed anymore
 import os # To construct database path safely
@@ -55,6 +56,22 @@ class Task(TaskBase):
 # --- FastAPI Application ---
 
 app = FastAPI()
+# --- CORS Middleware Configuration ---
+
+# Define allowed origins (your frontend URL)
+origins = [
+    "http://localhost:5173", # Vite default dev server
+    "http://127.0.0.1:5173", # Sometimes accessed via IP
+    # Add other origins if needed (e.g., deployed frontend URL)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # List of allowed origins
+    allow_credentials=True, # Allow cookies (optional, but good practice)
+    allow_methods=["*"],    # Allow all standard methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],    # Allow all headers
+)
 
 # --- Event Handlers for Database Connection ---
 
