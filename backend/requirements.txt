@@ -1,3 +1,9 @@
 fastapi
 uvicorn[standard]
 databases[sqlite]
+sqlalchemy
+aiosqlite
+
+# LLM Features
+openai
+python-dotenv
