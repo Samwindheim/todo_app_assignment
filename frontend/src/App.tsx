@@ -8,6 +8,7 @@ interface Task {
   title: string;
   description: string | null;
   completed: boolean;
+  labels: string | null; // Added labels field
 }
 
 function App() {
@@ -141,6 +142,7 @@ function App() {
   const handleEditClick = (task: Task) => {
     setEditingTaskId(task.id);
     setEditedTaskTitle(task.title); // Pre-fill the input
+    // Note: We are not editing labels directly in this simplified UI
   };
 
   const handleCancelEdit = () => {
@@ -156,7 +158,6 @@ function App() {
         return; // Don't save if title is empty
     }
 
-    // Find the original task to get its other properties (like completed status)
     const originalTask = tasks.find(task => task.id === editingTaskId);
     if (!originalTask) {
         setError("Original task not found for editing."); // Should not happen
@@ -164,18 +165,26 @@ function App() {
         return;
     }
 
+    // Prepare data for PUT request
+    // We send the *potentially* changed title. Backend will decide if labels need regenerating.
     const updatedTaskData = {
-        ...originalTask, // Keep other properties like description, completed
-        title: editedTaskTitle.trim(), // Use the edited title
+        ...originalTask,
+        title: editedTaskTitle.trim(),
+        // We don't send labels from the frontend during save edit,
+        // backend handles regeneration based on title change.
+        // If we wanted manual label override, we'd need state for editedLabels.
+        labels: originalTask.labels // Send current labels back initially
     };
 
     try {
-      await axios.put(`${API_URL}/${editingTaskId}`, updatedTaskData);
+      // The PUT request will return the task potentially with *updated* labels from the backend
+      const response = await axios.put<Task>(`${API_URL}/${editingTaskId}`, updatedTaskData);
+      const taskWithUpdatedLabels = response.data;
 
-      // Update the task in the state and re-sort
+      // Update the task in the state (using the response data)
       setTasks(prevTasks => {
         const updatedTasks = prevTasks.map(task =>
-          task.id === editingTaskId ? updatedTaskData : task
+          task.id === editingTaskId ? taskWithUpdatedLabels : task // Use task returned from backend
         );
         // Keep the same sorting logic
         return updatedTasks.sort((a, b) => {
@@ -213,10 +222,10 @@ function App() {
       {/* --- Task List --- */}
       <ul>
         {tasks.map(task => (
-          <li key={task.id} style={{ textDecoration: task.completed ? 'line-through' : 'none' }}>
+          <li key={task.id} style={{ display: 'flex', alignItems: 'center', marginBottom: '10px', textDecoration: task.completed ? 'line-through' : 'none' }}>
             {editingTaskId === task.id ? (
               // --- Edit Mode --- //
-              <>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
                 <input
                   type="text"
                   value={editedTaskTitle}
@@ -227,7 +236,7 @@ function App() {
                 />
                 <button onClick={handleSaveEdit} style={{ marginRight: '5px' }}>Save</button>
                 <button onClick={handleCancelEdit}>Cancel</button>
-              </>
+              </div>
             ) : (
               // --- View Mode --- //
               <>
@@ -241,24 +250,32 @@ function App() {
                 <span onClick={() => !task.completed && handleEditClick(task)} style={{ cursor: task.completed ? 'default' : 'pointer', marginRight: '10px' }}>
                    {task.title}
                 </span>
-                {/* Edit Button - only show if not completed */}
-                {!task.completed &&
+                {/* Display Labels */}
+                {task.labels && (
+                    <span style={{ fontSize: '0.8em', color: 'grey', marginLeft: 'auto', marginRight: '10px' }}>
+                         [{task.labels}]
+                    </span>
+                )}
+                <div style={{ marginLeft: task.labels ? '0' : 'auto'}}> {/* Adjust margin based on labels presence */} 
+                    {/* Edit Button - only show if not completed */}
+                    {!task.completed &&
+                        <button
+                            onClick={() => handleEditClick(task)}
+                            style={{ marginLeft: '10px', cursor: 'pointer' }}
+                            disabled={editingTaskId !== null} // Disable if any task is being edited
+                        >
+                            Edit
+                        </button>
+                    }
+                    {/* Delete Button */}
                     <button
-                        onClick={() => handleEditClick(task)}
-                        style={{ marginLeft: '10px', cursor: 'pointer' }}
+                        onClick={() => handleDeleteTask(task.id)}
+                        style={{ marginLeft: '10px', cursor: 'pointer', color: 'red' }}
                         disabled={editingTaskId !== null} // Disable if any task is being edited
                     >
-                        Edit
+                        Delete
                     </button>
-                }
-                {/* Delete Button */}
-                <button
-                    onClick={() => handleDeleteTask(task.id)}
-                    style={{ marginLeft: '10px', cursor: 'pointer', color: 'red' }}
-                    disabled={editingTaskId !== null} // Disable if any task is being edited
-                >
-                    Delete
-                </button>
+                </div>
               </>
             )}
           </li>
