@@ -5,6 +5,82 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional # Removed Dict, Any as they might not be needed anymore
 import os # To construct database path safely
+import logging # Added for logging
+
+# --- LLM & Environment Configuration ---
+from dotenv import load_dotenv
+from openai import AsyncOpenAI, OpenAIError # Added OpenAI imports
+
+load_dotenv() # Load environment variables from .env file
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize OpenAI client (only if key is present)
+aclient = None
+if OPENAI_API_KEY:
+    aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    logger.info("OpenAI client initialized.")
+else:
+    logger.warning("OPENAI_API_KEY not found in environment variables. LLM features will be disabled.")
+
+# --- LLM Helper Function ---
+async def get_labels_for_task(title: str, description: Optional[str]) -> Optional[str]:
+    """Calls OpenAI API to suggest labels for a task based on title and description."""
+    if not aclient: # Check if client was initialized (API key present)
+        logger.warning("OpenAI client not available. Skipping label generation.")
+        return None
+
+    combined_text = f"Title: {title}"
+    if description:
+        combined_text += f"\nDescription: {description}"
+
+    # Basic Prompt Strategy
+    system_prompt = "You are an assistant that suggests relevant labels for tasks."
+    user_prompt = (
+        f"Suggest 1-3 relevant labels for the following task. "
+        f"Labels should be concise, lowercase words (e.g., 'work', 'urgent', 'shopping', 'bug', 'feature'). "
+        f"Separate multiple labels with a comma and a space (e.g., 'personal, urgent'). "
+        f"If no specific labels seem highly relevant, respond with 'None'."
+        f"\n\nTask:\n{combined_text}"
+        f"\n\nSuggested Labels:"
+    )
+
+    try:
+        logger.info(f"Requesting labels for task: '{title[:50]}...' ")
+        response = await aclient.chat.completions.create(
+            model="gpt-3.5-turbo", # Or choose another suitable model like gpt-4o-mini
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2, # Lower temperature for more focused output
+            max_tokens=20, # Limit response length
+            n=1, # Get one response
+            stop=None # No specific stop sequence needed
+        )
+
+        suggested_labels = response.choices[0].message.content.strip()
+        logger.info(f"Received labels: '{suggested_labels}' for task: '{title[:50]}...' ")
+
+        # Basic validation/cleanup
+        if suggested_labels.lower() == 'none' or not suggested_labels:
+            return None
+
+        # Optional: Further sanitize labels (e.g., remove extra spaces, ensure lowercase)
+        cleaned_labels = ", ".join([label.strip().lower() for label in suggested_labels.split(',') if label.strip()])
+
+        return cleaned_labels if cleaned_labels else None
+
+    except OpenAIError as e:
+        logger.error(f"OpenAI API error while getting labels for task '{title[:50]}...': {e}")
+        return None # Fallback: return None on API error
+    except Exception as e:
+        logger.error(f"Unexpected error while getting labels for task '{title[:50]}...': {e}")
+        return None # Fallback: return None on other errors
 
 # --- Database Configuration ---
 
@@ -32,6 +108,7 @@ tasks_table = sqlalchemy.Table(
     sqlalchemy.Column("title", sqlalchemy.String, nullable=False),
     sqlalchemy.Column("description", sqlalchemy.String, nullable=True),
     sqlalchemy.Column("completed", sqlalchemy.Boolean, default=False),
+    sqlalchemy.Column("labels", sqlalchemy.String, nullable=True),
 )
 
 # Create a synchronous engine ONLY for creating the table
@@ -43,15 +120,26 @@ class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
     completed: bool = False
+    labels: Optional[str] = None
 
 class TaskCreate(TaskBase):
-    pass # Inherits all fields from TaskBase
+    # We will *not* accept labels directly on creation
+    # Labels will be generated after creation
+    title: str
+    description: Optional[str] = None
+    completed: bool = False
 
 class TaskUpdate(TaskBase): # Model for PUT requests
-    pass # Inherits all fields from TaskBase
+    # We *will* accept labels during update, in case user wants to override
+    title: str
+    description: Optional[str] = None
+    completed: bool = False
+    labels: Optional[str] = None # Allow labels to be updated
 
 class Task(TaskBase):
     id: int
+    # Ensure labels is included in the final Task model returned by API
+    labels: Optional[str] = None
 
 # --- FastAPI Application ---
 
@@ -118,52 +206,96 @@ async def get_tasks():
 @app.post("/api/tasks", response_model=Task, status_code=201)
 async def create_task(task_in: TaskCreate):
     """
-    Create a new task in the database.
+    Create a new task in the database and generate labels using LLM.
     """
-    query = tasks_table.insert().values(
+    # 1. Insert the basic task data (without labels initially)
+    insert_query = tasks_table.insert().values(
         title=task_in.title,
         description=task_in.description,
-        completed=task_in.completed
+        completed=task_in.completed,
+        labels=None # Explicitly set labels to None initially
     )
-    # Execute the insert query and get the ID of the new row
-    last_record_id = await database.execute(query)
-    # Return the created task including the generated ID
-    return Task(id=last_record_id, **task_in.model_dump())
+    last_record_id = await database.execute(insert_query)
+
+    # 2. Attempt to get labels from LLM
+    generated_labels = await get_labels_for_task(task_in.title, task_in.description)
+
+    # 3. Update the task with labels if generated successfully
+    if generated_labels:
+        update_query = (
+            tasks_table.update()
+            .where(tasks_table.c.id == last_record_id)
+            .values(labels=generated_labels)
+        )
+        await database.execute(update_query)
+
+    # 4. Fetch the final task data (including potential labels) to return
+    fetch_query = tasks_table.select().where(tasks_table.c.id == last_record_id)
+    created_task = await database.fetch_one(fetch_query)
+
+    if created_task is None:
+        # This should ideally not happen if insert succeeded
+        raise HTTPException(status_code=500, detail="Failed to retrieve task after creation")
+
+    # Pydantic will validate the RowProxy object against the Task model
+    return created_task
 
 @app.put("/api/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: int, task_in: TaskUpdate):
     """
     Update an existing task in the database by ID.
+    If title/description changes, regenerate labels using LLM.
     """
-    query = (
+    # 1. Fetch the current task to check if text changed
+    fetch_query = tasks_table.select().where(tasks_table.c.id == task_id)
+    current_task = await database.fetch_one(fetch_query)
+
+    if current_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Determine if text content relevant for labeling has changed
+    text_changed = (
+        current_task["title"] != task_in.title or
+        current_task["description"] != task_in.description
+    )
+
+    # 2. Generate new labels if text changed, otherwise use provided labels or keep old
+    labels_to_set = current_task["labels"] # Default to keeping old labels
+    if text_changed:
+        logger.info(f"Task text changed for ID {task_id}. Regenerating labels...")
+        generated_labels = await get_labels_for_task(task_in.title, task_in.description)
+        if generated_labels is not None:
+            labels_to_set = generated_labels
+        # If LLM fails or returns None, we keep the old labels unless explicitly cleared by user
+        elif task_in.labels is None:
+             labels_to_set = None # Allow user to clear labels by passing null
+
+    elif task_in.labels is not None:
+         # Text didn't change, but user provided labels in the PUT request
+         labels_to_set = task_in.labels
+    # If text didn't change and user didn't provide labels, labels_to_set retains original value
+
+
+    # 3. Update the task in the database with all new values
+    update_query = (
         tasks_table.update()
         .where(tasks_table.c.id == task_id)
         .values(
             title=task_in.title,
             description=task_in.description,
-            completed=task_in.completed
+            completed=task_in.completed,
+            labels=labels_to_set # Set the determined labels
         )
     )
-    # Execute the update query
-    result = await database.execute(query)
+    result = await database.execute(update_query)
 
-    # Check if any row was updated
-    if result == 0:
-         check_query = tasks_table.select().where(tasks_table.c.id == task_id)
-         updated_task = await database.fetch_one(check_query)
-         if updated_task is None:
-             raise HTTPException(status_code=404, detail="Task not found")
-         return updated_task
-
-    # Fetch the updated task data to return
-    fetch_query = tasks_table.select().where(tasks_table.c.id == task_id)
+    # 4. Fetch the updated task data to return
+    # Re-fetch necessary as the update query doesn't return the row
     updated_task_data = await database.fetch_one(fetch_query)
     if updated_task_data is None:
+         # Should not happen if the task existed initially
          raise HTTPException(status_code=404, detail="Task not found after update attempt")
 
-    # Ensure the returned data conforms to the Pydantic model
-    # The fetch_one result is a RowProxy, which behaves like a dict/namedtuple
-    # Pydantic can usually handle this directly if field names match
     return updated_task_data
 
 @app.delete("/api/tasks/{task_id}", status_code=204)
