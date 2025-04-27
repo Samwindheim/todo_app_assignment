@@ -65,9 +65,12 @@ Unit tests are included for the backend LLM logic (`get_labels_for_task`).
     - The tests mock the OpenAI API call to verify success and failure scenarios for label generation.
     - Ensure the backend virtual environment (`backend/venv/bin/activate`) is active if running `pytest` manually outside of Make.
 
-## Key Technologies
+# Design Decisions & Trade-offs
 
-- **Backend:** FastAPI, SQLAlchemy, databases, OpenAI
-- **Frontend:** React, TypeScript, Vite, Axios
-- **Database:** SQLite
-- **Tooling:** Make, pytest
+- **Backend (FastAPI):** Chosen for its modern async capabilities (good fit for I/O-bound tasks like API calls and DB operations), speed, automatic OpenAPI documentation (`/docs`), and built-in data validation with Pydantic. \_Trade-off: Smaller ecosystem compared to Flask/Django.
+- **Frontend (React + TypeScript + Vite):** React provides a robust component model for UIs. TypeScript adds static typing for better maintainability and catching errors early. Vite offers a fast development experience. \_Trade-off: Can involve a slightly steeper learning curve.
+- **Database (SQLite):** Used for simplicity and local persistence as per requirements (no external DB setup needed). `SQLAlchemy` Core + `databases` library provide async access. \_Trade-off: Potential limitations if schema evolution becomes complex.
+- **LLM Integration (OpenAI Library):** The official `openai` library was used directly for simplicity in making single API calls for labeling. \_Trade-off: For more complex LLM workflows (chaining calls, agents), a framework like LangChain might offer more structure but adds complexity/dependencies.
+- **LLM Error Handling:** Implemented a fallback where the app continues to function (returning tasks without labels) if the OpenAI API call fails.
+- **Development Workflow (Makefile):** A `Makefile` provides reproducible, one-command setup (`make setup`) and run (`make run`) commands, improving developer experience.
+- **API Key Management (`.env`):** Standard `python-dotenv` approach used to keep secrets out of version control.
