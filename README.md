@@ -8,7 +8,7 @@ It fulfills the core requirements (add, edit, delete, mark-as-done tasks) and in
 
 - **Core:** Add, edit, delete, and toggle completion status for tasks.
 - **Persistence:** Tasks are saved locally in an SQLite database (`backend/todo.db`).
-- **LLM - Smart Labeling:** When tasks are created or their text content is updated, the OpenAI API (`gpt-3.5-turbo`) is called to suggest 1-3 relevant labels (e.g., `[work, urgent]`). These are displayed in the UI.
+- **LLM - Smart Labeling:** When tasks are created or their text content is updated, the OpenAI API (`gpt-4.1-nano`) is called to suggest 1-3 relevant labels (e.g., `[work, urgent]`). These are displayed in the UI.
 
 ## Setup and Running
 
@@ -48,7 +48,7 @@ It fulfills the core requirements (add, edit, delete, mark-as-done tasks) and in
 
 ## LLM Integration Details
 
-- **Model:** `gpt-3.5-turbo` (via `openai` library).
+- **Model:** `gpt-4.1-nano` (via `openai` library).
 - **Prompt Strategy:** The LLM is asked to suggest 1-3 concise, lowercase, comma-separated labels based on the task title/description, or return `None`.
 - **Error Handling/Fallback:** If the API key is missing or the API call fails (e.g., network error, rate limit), the backend logs an error and proceeds without labels. The main application functionality is unaffected.
 
