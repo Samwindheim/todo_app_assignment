@@ -71,7 +71,7 @@ async def get_labels_for_task(title: str, description: Optional[str]) -> Optiona
         logger.info(f"Requesting LLM labels for task: '{title[:50]}...'")
         # Make the asynchronous API call to OpenAI
         response = await aclient.chat.completions.create(
-            model="gpt-3.5-turbo", # Using a cost-effective and capable model
+            model="gpt-4.1-nano", # Using a cost-effective and capable model
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
