@@ -24,10 +24,11 @@
         !.env.example # Important: Allow .env.example
 
         # SQLite Database
-        *.db
-        *.db-*
-        *.sqlite
-        *.sqlite3
+        backend/todo.db
+        backend/*.db
+        backend/*.db-*
+        backend/*.sqlite
+        backend/*.sqlite3
 
         # Node dependencies
         node_modules/
@@ -50,3 +51,5 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
+todo.db
+instructions.txt
