@@ -15,74 +15,100 @@ from backend.main import get_labels_for_task
 # --- Test Fixtures (if needed later) ---
 
 # --- Test Cases for get_labels_for_task ---
+# These tests verify the logic within the `get_labels_for_task` function
+# by simulating different responses or errors from the OpenAI API call.
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio # Mark the test as asynchronous to work with async functions
 async def test_get_labels_success():
     """Test successful label generation from OpenAI response."""
-    # Arrange: Create the mock completion object
+    # ARRANGE: Set up the test conditions and mock data.
+    # -----------------------------------------------------
+    # 1. Define the *expected* fake response object from OpenAI.
+    #    We mimic the structure the real API would return.
     mock_completion = ChatCompletion(
-        id="chatcmpl-xxxxx",
+        id="chatcmpl-mock-success",
         choices=[
             Choice(
                 finish_reason="stop",
                 index=0,
+                # Simulate the AI returning the desired labels
                 message=ChatCompletionMessage(content="work, urgent", role="assistant", function_call=None, tool_calls=None)
             )
         ],
-        created=1677652288, model="gpt-3.5-turbo-0613", object="chat.completion", system_fingerprint="fp_xxxxx", usage=None
+        created=1677652288, model="gpt-3.5-turbo", object="chat.completion"
     )
 
-    # Patch the create method using AsyncMock for awaitable behavior
+    # 2. Patch the actual function that makes the API call.
+    #    - We target 'backend.main.aclient.chat.completions.create' which is called inside get_labels_for_task.
+    #    - `new_callable=mock.AsyncMock` ensures the mock behaves like an async function that can be awaited.
+    #    - `return_value=mock_completion` tells the mock to return our predefined fake response when called.
     with mock.patch('backend.main.aclient.chat.completions.create', new_callable=mock.AsyncMock, return_value=mock_completion) as mock_create:
-        # Act: Call the function under test
+
+        # ACT: Execute the code being tested.
+        # ----------------------------------
         labels = await get_labels_for_task("Fix critical bug", "Login fails for users")
 
-        # Assert: Check the results
+        # ASSERT: Verify the outcome.
+        # ---------------------------
+        # 1. Check if the function processed the mock response correctly.
         assert labels == "work, urgent"
-        mock_create.assert_called_once() # Corrected assertion
+        # 2. Verify that the mocked API call function was actually called exactly once.
+        mock_create.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_get_labels_returns_none():
-    """Test when OpenAI responds with 'None' or similar."""
-    # Arrange
+    """Test when OpenAI responds with 'None', indicating no relevant labels."""
+    # ARRANGE: Mock an API response containing " None ".
+    # -----------------------------------------------------
     mock_completion = ChatCompletion(
-        id="chatcmpl-xxxxx",
+        id="chatcmpl-mock-none",
         choices=[
             Choice(
                 finish_reason="stop",
                 index=0,
+                # Simulate the AI explicitly returning " None "
                 message=ChatCompletionMessage(content=" None ", role="assistant", function_call=None, tool_calls=None)
             )
         ],
-        created=1677652288, model="gpt-3.5-turbo-0613", object="chat.completion", system_fingerprint="fp_xxxxx", usage=None
+        created=1677652288, model="gpt-3.5-turbo", object="chat.completion"
     )
+    # Patch the API call to return this specific response.
     with mock.patch('backend.main.aclient.chat.completions.create', new_callable=mock.AsyncMock, return_value=mock_completion) as mock_create:
-        # Act
+        # ACT: Run the function.
+        # -------------------
         labels = await get_labels_for_task("Simple task", "Nothing special")
-        # Assert
+        # ASSERT: Check if the function correctly interpreted " None " as Python None.
+        # -----------------------------------------------------------------------
         assert labels is None
-        mock_create.assert_called_once() # Corrected assertion
+        mock_create.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_get_labels_openai_error():
-    """Test fallback when OpenAI API raises an error."""
-    # Arrange: Mock the API call to raise an OpenAIError
-    with mock.patch('backend.main.aclient.chat.completions.create', new_callable=mock.AsyncMock, side_effect=OpenAIError("API connection error")) as mock_create:
-        # Act
+    """Test the fallback behavior when the OpenAI API call raises an error. Rate limits, etc."""
+    # ARRANGE: Configure the mock to raise an OpenAIError when called.
+    #          `side_effect` makes the mock raise an exception instead of returning a value.
+    # ------------------------------------------------------------------------------------
+    with mock.patch('backend.main.aclient.chat.completions.create', new_callable=mock.AsyncMock, side_effect=OpenAIError("Mock API connection error")) as mock_create:
+        # ACT: Run the function.
+        # -------------------
         labels = await get_labels_for_task("Another task", "")
-        # Assert
-        assert labels is None # Should return None as fallback
-        mock_create.assert_called_once() # Corrected assertion
+        # ASSERT: Check if the function returned None as the fallback on error.
+        # ----------------------------------------------------------------------
+        assert labels is None
+        mock_create.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_get_labels_no_client():
-    """Test behavior when OpenAI client (aclient) is None (e.g., no API key)."""
-    # Arrange: Patch the 'aclient' directly where get_labels_for_task uses it
+    """Test behavior when the OpenAI client itself is None (e.g., no API key)."""
+    # ARRANGE: Patch the *aclient variable* directly within the backend.main module,
+    #          setting it to None for the duration of this test.
+    #          This simulates the state where the API key wasn't loaded.
+    # ----------------------------------------------------------------------------
     with mock.patch('backend.main.aclient', None):
-        # Act
+        # ACT: Run the function.
+        # -------------------
         labels = await get_labels_for_task("Task without client", "")
-        # Assert
+        # ASSERT: Check if the function returned None immediately due to the `if not aclient:` check.
+        #          Note: We don't assert the API call count here because it should *not* have been called.
+        # ------------------------------------------------------------------------------------------------
         assert labels is None
-
-# Note: Removed redundant import of aclient as we mock it where needed
-# Note: Removed TODO as these core cases cover the main logic paths 
